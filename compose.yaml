@@ -1,23 +1,38 @@
 version: '3.8'
 
 services:
-  polish-calculator:
+  calculator-server:
     build:
       context: .
       dockerfile: .devcontainer/Dockerfile
-    container_name: calculator-app
+    container_name: http-calculator-server
+    image: calculator-server:latest
+    ports:
+      - "8080:8080"
     stdin_open: true
     tty: true
     volumes:
-      - ./TestTask.cpp:/workspace/TestTask.cpp:ro
-      - ./data:/workspace/data
+      - ./TestTask.cpp:/workspace/TestTask.cpp
     working_dir: /workspace
-    environment:
-      - MODE=interactive
-    command: >
+    command: ./calculator-server 8080
+    
+  test-client:
+    image: alpine:latest
+    container_name: calculator-test-client
+    depends_on:
+      - calculator-server
+    entrypoint: >
       sh -c "
-        echo 'Компиляция программы...' &&
-        g++ -std=c++17 -Wall -Wextra -O2 -o calculator TestTask.cpp &&
-        echo 'Запуск калькулятора...' &&
-        ./calculator
+        echo 'Waiting for server to start...'
+        sleep 5
+        echo 'Testing echo command...'
+        echo '{\"cmd\": \"echo\"}' | nc calculator-server 8080
+        echo ''
+        echo 'Testing calculation...'
+        echo '{\"exp\": \"2 + 2\"}' | nc calculator-server 8080
+        echo ''
+        echo 'Testing complex expression...'
+        echo '{\"exp\": \"(3 + 4) * 5\"}' | nc calculator-server 8080
       "
+    profiles:
+      - test

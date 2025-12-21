@@ -2,373 +2,348 @@
 #include <string>
 #include <vector>
 #include <stack>
-#include <queue>
-#include <map>
 #include <sstream>
 #include <cctype>
 #include <stdexcept>
 #include <cmath>
-#include <iomanip>
+#include <thread>
+#include <chrono>
+#include <cstring>
+#include <cstdlib>
 
 // ============================================================================
-// Классы для работы с токенами
+// Библиотеки для работы с сетью (для Linux)
 // ============================================================================
 
-enum class TokenType {
-    NUMBER,
-    OPERATOR,
-    PAREN_LEFT,
-    PAREN_RIGHT,
-    UNKNOWN
-};
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <netdb.h>
 
-struct Token {
-    TokenType type;
-    std::string value;
-    
-    Token(TokenType t, const std::string& v) : type(t), value(v) {}
-};
+#define PORT 8080
+#define BUFFER_SIZE 4096
 
 // ============================================================================
-// Класс для лексического анализа (токенизации)
+// Простой JSON парсер
 // ============================================================================
 
-class Tokenizer {
+class JsonParser {
 public:
-    static std::vector<Token> tokenize(const std::string& expression) {
-        std::vector<Token> tokens;
-        std::string numberBuffer;
-        
-        for (size_t i = 0; i < expression.length(); i++) {
-            char c = expression[i];
-            
-            // Пропускаем пробелы
-            if (std::isspace(static_cast<unsigned char>(c))) {
-                if (!numberBuffer.empty()) {
-                    tokens.emplace_back(TokenType::NUMBER, numberBuffer);
-                    numberBuffer.clear();
-                }
-                continue;
-            }
-            
-            // Собираем числа (включая десятичную точку)
-            if (std::isdigit(static_cast<unsigned char>(c)) || c == '.') {
-                numberBuffer += c;
-                continue;
-            }
-            
-            // Если собрали число, добавляем его как токен
-            if (!numberBuffer.empty()) {
-                tokens.emplace_back(TokenType::NUMBER, numberBuffer);
-                numberBuffer.clear();
-            }
-            
-            // Операторы и скобки
-            if (isOperator(c)) {
-                tokens.emplace_back(TokenType::OPERATOR, std::string(1, c));
-            } else if (c == '(') {
-                tokens.emplace_back(TokenType::PAREN_LEFT, "(");
-            } else if (c == ')') {
-                tokens.emplace_back(TokenType::PAREN_RIGHT, ")");
-            } else {
-                throw std::runtime_error("Неверный символ: " + std::string(1, c));
-            }
-        }
-        
-        // Добавляем последнее число, если есть
-        if (!numberBuffer.empty()) {
-            tokens.emplace_back(TokenType::NUMBER, numberBuffer);
-        }
-        
-        return tokens;
+    static std::string createResponse(const std::string& result) {
+        return "{\"res\":\"" + result + "\"}";
     }
     
-private:
-    static bool isOperator(char c) {
-        return c == '+' || c == '-' || c == '*' || c == '/';
-    }
-};
-
-// ============================================================================
-// Класс для преобразования в прямую польскую нотацию (префиксную)
-// ============================================================================
-
-class PolishNotationConverter {
-public:
-    // Преобразование инфиксной записи в префиксную (прямую польскую)
-    static std::vector<Token> toPrefix(const std::string& expression) {
-        std::vector<Token> tokens = Tokenizer::tokenize(expression);
-        return infixToPrefix(tokens);
-    }
-    
-    // Вычисление выражения в префиксной нотации
-    static double evaluatePrefix(const std::vector<Token>& prefixTokens) {
-        std::stack<double> values;
-        
-        // Обрабатываем токены справа налево для префиксной записи
-        for (auto it = prefixTokens.rbegin(); it != prefixTokens.rend(); ++it) {
-            const Token& token = *it;
-            
-            if (token.type == TokenType::NUMBER) {
-                values.push(std::stod(token.value));
-            } else if (token.type == TokenType::OPERATOR) {
-                if (values.size() < 2) {
-                    throw std::runtime_error("Недостаточно операндов для оператора " + token.value);
-                }
-                
-                double a = values.top();
-                values.pop();
-                double b = values.top();
-                values.pop();
-                
-                double result = applyOperator(token.value, a, b);
-                values.push(result);
-            } else {
-                throw std::runtime_error("Неверный тип токена в префиксном выражении");
-            }
-        }
-        
-        if (values.size() != 1) {
-            throw std::runtime_error("Некорректное выражение");
-        }
-        
-        return values.top();
-    }
-    
-    // Форматирование префиксного выражения в строку
-    static std::string formatPrefix(const std::vector<Token>& prefixTokens) {
+    static std::string createResponse(double result) {
         std::stringstream ss;
-        for (size_t i = 0; i < prefixTokens.size(); i++) {
-            ss << prefixTokens[i].value;
-            if (i < prefixTokens.size() - 1) {
-                ss << " ";
-            }
-        }
-        return ss.str();
+        ss << result;
+        return "{\"res\":" + ss.str() + "}";
     }
     
-private:
-    // Преобразование инфиксной записи в префиксную
-    static std::vector<Token> infixToPrefix(const std::vector<Token>& infixTokens) {
-        std::stack<Token> operators;
-        std::stack<std::vector<Token>> operands;
-        
-        for (const auto& token : infixTokens) {
-            if (token.type == TokenType::NUMBER) {
-                std::vector<Token> single;
-                single.push_back(token);
-                operands.push(single);
-            } else if (token.type == TokenType::PAREN_LEFT) {
-                operators.push(token);
-            } else if (token.type == TokenType::PAREN_RIGHT) {
-                while (!operators.empty() && operators.top().type != TokenType::PAREN_LEFT) {
-                    applyOperatorToOperands(operators, operands);
-                }
-                
-                if (operators.empty()) {
-                    throw std::runtime_error("Несогласованные скобки");
-                }
-                operators.pop(); // Удаляем '('
-            } else if (token.type == TokenType::OPERATOR) {
-                while (!operators.empty() && 
-                       operators.top().type != TokenType::PAREN_LEFT &&
-                       getPrecedence(operators.top().value) >= getPrecedence(token.value)) {
-                    applyOperatorToOperands(operators, operands);
-                }
-                operators.push(token);
+    static std::string createError(const std::string& error) {
+        return "{\"error\":\"" + error + "\"}";
+    }
+    
+    static bool parseRequest(const std::string& json, std::string& exp, std::string& cmd) {
+        // Ищем exp
+        size_t expPos = json.find("\"exp\":\"");
+        if (expPos != std::string::npos) {
+            size_t start = expPos + 7;
+            size_t end = json.find("\"", start);
+            if (end != std::string::npos) {
+                exp = json.substr(start, end - start);
+                return true;
             }
         }
         
-        while (!operators.empty()) {
-            if (operators.top().type == TokenType::PAREN_LEFT) {
-                throw std::runtime_error("Несогласованные скобки");
+        // Ищем cmd
+        size_t cmdPos = json.find("\"cmd\":\"");
+        if (cmdPos != std::string::npos) {
+            size_t start = cmdPos + 7;
+            size_t end = json.find("\"", start);
+            if (end != std::string::npos) {
+                cmd = json.substr(start, end - start);
+                return true;
             }
-            applyOperatorToOperands(operators, operands);
         }
         
-        if (operands.size() != 1) {
-            throw std::runtime_error("Некорректное выражение");
-        }
-        
-        return operands.top();
-    }
-    
-    // Применение оператора к операндам в стеке
-    static void applyOperatorToOperands(std::stack<Token>& operators, 
-                                        std::stack<std::vector<Token>>& operands) {
-        if (operands.size() < 2) {
-            throw std::runtime_error("Недостаточно операндов");
-        }
-        
-        Token op = operators.top();
-        operators.pop();
-        
-        std::vector<Token> b = operands.top();
-        operands.pop();
-        std::vector<Token> a = operands.top();
-        operands.pop();
-        
-        // Создаем префиксное выражение: оператор + операнд1 + операнд2
-        std::vector<Token> newOperand;
-        newOperand.push_back(op);
-        newOperand.insert(newOperand.end(), a.begin(), a.end());
-        newOperand.insert(newOperand.end(), b.begin(), b.end());
-        
-        operands.push(newOperand);
-    }
-    
-    // Получение приоритета оператора
-    static int getPrecedence(const std::string& op) {
-        if (op == "+" || op == "-") {
-            return 1;
-        } else if (op == "*" || op == "/") {
-            return 2;
-        }
-        return 0;
-    }
-    
-    // Применение оператора к двум числам
-    static double applyOperator(const std::string& op, double a, double b) {
-        if (op == "+") {
-            return a + b;
-        } else if (op == "-") {
-            return a - b;
-        } else if (op == "*") {
-            return a * b;
-        } else if (op == "/") {
-            if (std::fabs(b) < 1e-12) {
-                throw std::runtime_error("Деление на ноль");
-            }
-            return a / b;
-        }
-        throw std::runtime_error("Неизвестный оператор: " + op);
+        return false;
     }
 };
 
 // ============================================================================
-// Класс калькулятора (основной интерфейс)
+// Правильный калькулятор с поддержкой всех операций
 // ============================================================================
 
 class Calculator {
-public:
-    // Вычисление выражения
-    static double calculate(const std::string& expression) {
-        std::vector<Token> prefixTokens = PolishNotationConverter::toPrefix(expression);
-        return PolishNotationConverter::evaluatePrefix(prefixTokens);
-    }
-    
-    // Получение выражения в прямой польской нотации
-    static std::string getPrefixNotation(const std::string& expression) {
-        std::vector<Token> prefixTokens = PolishNotationConverter::toPrefix(expression);
-        return PolishNotationConverter::formatPrefix(prefixTokens);
-    }
-    
-    // Интерактивный режим работы
-    static void runInteractive() {
-        std::cout << "=============================================\n";
-        std::cout << "  КАЛЬКУЛЯТОР С ПРЯМОЙ ПОЛЬСКОЙ НОТАЦИЕЙ\n";
-        std::cout << "=============================================\n";
-        std::cout << "Поддерживаемые операции: + - * / ( )\n";
-        std::cout << "Примеры выражений:\n";
-        std::cout << "  (3 + 4) * 5\n";
-        std::cout << "  10 + 2 * 3\n";
-        std::cout << "  3 + 4 * 2 / (1 - 5)\n";
-        std::cout << "Введите 'exit' для выхода\n";
-        std::cout << "=============================================\n\n";
-        
-        std::string input;
-        
-        while (true) {
-            std::cout << "Введите выражение> ";
-            std::getline(std::cin, input);
-            
-            // Проверка на выход
-            if (input == "exit" || input == "quit" || input == "q") {
-                std::cout << "Выход из программы...\n";
-                break;
+private:
+    static std::string removeSpaces(const std::string& s) {
+        std::string result;
+        for (char c : s) {
+            if (!std::isspace(c)) {
+                result += c;
             }
+        }
+        return result;
+    }
+    
+    static double parseExpression(const std::string& expr, size_t& pos);
+    static double parseTerm(const std::string& expr, size_t& pos);
+    static double parseFactor(const std::string& expr, size_t& pos);
+    static double parseNumber(const std::string& expr, size_t& pos);
+    
+public:
+    static double calculate(const std::string& expression) {
+        std::string expr = removeSpaces(expression);
+        size_t pos = 0;
+        double result = parseExpression(expr, pos);
+        
+        if (pos < expr.length()) {
+            throw std::runtime_error("Unexpected characters: " + expr.substr(pos));
+        }
+        
+        return result;
+    }
+};
+
+double Calculator::parseExpression(const std::string& expr, size_t& pos) {
+    double result = parseTerm(expr, pos);
+    
+    while (pos < expr.length() && (expr[pos] == '+' || expr[pos] == '-')) {
+        char op = expr[pos];
+        pos++;
+        
+        double right = parseTerm(expr, pos);
+        
+        if (op == '+') {
+            result += right;
+        } else { // op == '-'
+            result -= right;
+        }
+    }
+    
+    return result;
+}
+
+double Calculator::parseTerm(const std::string& expr, size_t& pos) {
+    double result = parseFactor(expr, pos);
+    
+    while (pos < expr.length() && (expr[pos] == '*' || expr[pos] == '/')) {
+        char op = expr[pos];
+        pos++;
+        
+        double right = parseFactor(expr, pos);
+        
+        if (op == '*') {
+            result *= right;
+        } else { // op == '/'
+            if (right == 0) {
+                throw std::runtime_error("Division by zero");
+            }
+            result /= right;
+        }
+    }
+    
+    return result;
+}
+
+double Calculator::parseFactor(const std::string& expr, size_t& pos) {
+    if (pos >= expr.length()) {
+        throw std::runtime_error("Unexpected end of expression");
+    }
+    
+    if (expr[pos] == '(') {
+        pos++; // skip '('
+        double result = parseExpression(expr, pos);
+        
+        if (pos >= expr.length() || expr[pos] != ')') {
+            throw std::runtime_error("Missing ')'");
+        }
+        pos++; // skip ')'
+        return result;
+    }
+    
+    // Check for unary minus
+    if (expr[pos] == '-') {
+        pos++;
+        return -parseFactor(expr, pos);
+    }
+    
+    return parseNumber(expr, pos);
+}
+
+double Calculator::parseNumber(const std::string& expr, size_t& pos) {
+    if (pos >= expr.length()) {
+        throw std::runtime_error("Expected number");
+    }
+    
+    size_t start = pos;
+    
+    // Check for leading minus (already handled in parseFactor)
+    
+    // Read digits
+    while (pos < expr.length() && std::isdigit(expr[pos])) {
+        pos++;
+    }
+    
+    // Decimal point
+    if (pos < expr.length() && expr[pos] == '.') {
+        pos++;
+        while (pos < expr.length() && std::isdigit(expr[pos])) {
+            pos++;
+        }
+    }
+    
+    if (start == pos) {
+        throw std::runtime_error("Invalid number");
+    }
+    
+    std::string numStr = expr.substr(start, pos - start);
+    return std::stod(numStr);
+}
+
+// ============================================================================
+// HTTP сервер
+// ============================================================================
+
+class SimpleHttpServer {
+private:
+    int server_fd;
+    bool running;
+    
+public:
+    SimpleHttpServer() : running(false) {}
+    
+    void start(int port = PORT) {
+        // Создание сокета
+        if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
+            perror("socket failed");
+            exit(EXIT_FAILURE);
+        }
+        
+        // Настройка сокета
+        int opt = 1;
+        if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt))) {
+            perror("setsockopt");
+            exit(EXIT_FAILURE);
+        }
+        
+        // Настройка адреса
+        struct sockaddr_in address;
+        address.sin_family = AF_INET;
+        address.sin_addr.s_addr = INADDR_ANY;
+        address.sin_port = htons(port);
+        
+        // Привязка сокета
+        if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
+            perror("bind failed");
+            exit(EXIT_FAILURE);
+        }
+        
+        // Прослушивание
+        if (listen(server_fd, 3) < 0) {
+            perror("listen");
+            exit(EXIT_FAILURE);
+        }
+        
+        std::cout << "Calculator Server running on port " << port << std::endl;
+        std::cout << "Use Ctrl+C to stop" << std::endl;
+        
+        running = true;
+        run();
+    }
+    
+private:
+    void run() {
+        while (running) {
+            int new_socket;
+            struct sockaddr_in address;
+            int addrlen = sizeof(address);
             
-            if (input.empty()) {
+            // Принятие соединения
+            if ((new_socket = accept(server_fd, (struct sockaddr *)&address, 
+                                    (socklen_t*)&addrlen)) < 0) {
+                perror("accept");
                 continue;
             }
             
-            try {
-                // Вычисляем результат
-                double result = calculate(input);
-                
-                // Получаем префиксную запись
-                std::string prefixNotation = getPrefixNotation(input);
-                
-                // Выводим результаты
-                std::cout << "┌─────────────────────────────────────┐\n";
-                std::cout << "│ Исходное выражение: " << std::setw(15) << input << " │\n";
-                std::cout << "│ Польская запись:    " << std::setw(15) << prefixNotation << " │\n";
-                std::cout << "│ Результат:          " << std::setw(15) << std::fixed 
-                         << std::setprecision(6) << result << " │\n";
-                std::cout << "└─────────────────────────────────────┘\n\n";
-                
-            } catch (const std::exception& e) {
-                std::cerr << "ОШИБКА: " << e.what() << "\n\n";
-            }
+            // Обработка клиента в отдельном потоке
+            std::thread([this, new_socket, address]() {
+                handleClient(new_socket, address);
+            }).detach();
         }
     }
     
-    // Тестовый режим
-    static void runTests() {
-        std::cout << "Запуск тестов...\n\n";
+    void handleClient(int socket, struct sockaddr_in address) {
+        char buffer[BUFFER_SIZE] = {0};
+        std::string client_ip = inet_ntoa(address.sin_addr);
+        int client_port = ntohs(address.sin_port);
         
-        struct TestCase {
-            std::string expression;
-            double expected;
-            std::string description;
-        };
+        std::cout << "New connection from " << client_ip << ":" << client_port << std::endl;
         
-        std::vector<TestCase> tests = {
-            {"1 + 2", 3, "Простое сложение"},
-            {"5 - 3", 2, "Простое вычитание"},
-            {"4 * 3", 12, "Простое умножение"},
-            {"10 / 2", 5, "Простое деление"},
-            {"2 + 3 * 4", 14, "Приоритет умножения"},
-            {"(2 + 3) * 4", 20, "Скобки меняют приоритет"},
-            {"10 - 3 - 2", 5, "Левая ассоциативность"},
-            {"3.5 + 2.5", 6.0, "Вещественные числа"},
-            {"(1 + 2) * (3 + 4)", 21, "Вложенные скобки"},
-            {"3 + 4 * 2 / (1 - 5)", 1, "Сложное выражение"},
-            {"0.1 + 0.2", 0.3, "Вещественное сложение"}
-        };
-        
-        int passed = 0;
-        int total = tests.size();
-        
-        for (const auto& test : tests) {
-            try {
-                double result = calculate(test.expression);
-                double tolerance = 1e-10;
-                
-                if (std::fabs(result - test.expected) < tolerance) {
-                    std::cout << "✓ PASS: " << test.description << " (" 
-                             << test.expression << " = " << result << ")\n";
-                    passed++;
-                } else {
-                    std::cout << "✗ FAIL: " << test.description 
-                             << " (ожидалось: " << test.expected 
-                             << ", получено: " << result << ")\n";
-                }
-                
-                // Дополнительно покажем польскую запись
-                std::string prefix = getPrefixNotation(test.expression);
-                std::cout << "  Польская запись: " << prefix << "\n";
-                
-            } catch (const std::exception& e) {
-                std::cout << "✗ ERROR: " << test.description 
-                         << " - " << e.what() << "\n";
-            }
-            std::cout << "\n";
+        // Чтение запроса
+        ssize_t bytes_read = read(socket, buffer, BUFFER_SIZE - 1);
+        if (bytes_read > 0) {
+            std::string request(buffer, bytes_read);
+            
+            // Обработка запроса
+            std::string response = processHttpRequest(request);
+            
+            // Отправка ответа
+            send(socket, response.c_str(), response.length(), 0);
         }
         
-        std::cout << "=============================================\n";
-        std::cout << "Результат тестов: " << passed << "/" << total << " пройдено\n";
-        std::cout << "=============================================\n\n";
+        close(socket);
+        std::cout << "Connection closed: " << client_ip << ":" << client_port << std::endl;
+    }
+    
+    std::string processHttpRequest(const std::string& request) {
+        // Ищем тело запроса
+        size_t body_start = request.find("\r\n\r\n");
+        if (body_start == std::string::npos) {
+            return createHttpResponse(JsonParser::createError("Invalid HTTP request"));
+        }
+        
+        std::string body = request.substr(body_start + 4);
+        
+        // Парсим JSON
+        std::string exp, cmd;
+        if (!JsonParser::parseRequest(body, exp, cmd)) {
+            return createHttpResponse(JsonParser::createError("Invalid JSON"));
+        }
+        
+        // Обрабатываем команду
+        if (!cmd.empty()) {
+            if (cmd == "echo") {
+                return createHttpResponse(JsonParser::createResponse("echo"));
+            } else {
+                return createHttpResponse(JsonParser::createError("Unknown command"));
+            }
+        }
+        
+        // Вычисляем выражение
+        if (!exp.empty()) {
+            try {
+                double result = Calculator::calculate(exp);
+                return createHttpResponse(JsonParser::createResponse(result));
+            } catch (const std::exception& e) {
+                return createHttpResponse(JsonParser::createError(e.what()));
+            }
+        }
+        
+        return createHttpResponse(JsonParser::createError("No expression provided"));
+    }
+    
+    std::string createHttpResponse(const std::string& json_body) {
+        std::string response = 
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: application/json\r\n"
+            "Content-Length: " + std::to_string(json_body.length()) + "\r\n"
+            "Connection: close\r\n"
+            "\r\n" +
+            json_body;
+        
+        return response;
     }
 };
 
@@ -377,43 +352,42 @@ public:
 // ============================================================================
 
 int main(int argc, char* argv[]) {
+    int port = PORT;
+    
     if (argc > 1) {
-        std::string mode(argv[1]);
+        if (std::string(argv[1]) == "--help" || std::string(argv[1]) == "-h") {
+            std::cout << "Calculator HTTP Server\n";
+            std::cout << "Usage: " << argv[0] << " [port]\n";
+            std::cout << "Default port: " << PORT << std::endl;
+            return 0;
+        }
         
-        if (mode == "--test" || mode == "-t") {
-            Calculator::runTests();
-        } else if (mode == "--help" || mode == "-h") {
-            std::cout << "Использование:\n";
-            std::cout << "  " << argv[0] << "           - интерактивный режим\n";
-            std::cout << "  " << argv[0] << " --test    - запуск тестов\n";
-            std::cout << "  " << argv[0] << " --help    - показать эту справку\n";
-            std::cout << "\nПримеры выражений:\n";
-            std::cout << "  (3 + 4) * 5\n";
-            std::cout << "  10 + 2 * 3\n";
-            std::cout << "  3 + 4 * 2 / (1 - 5)\n";
-        } else {
-            // Попробуем вычислить выражение из аргументов
-            std::string expression;
-            for (int i = 1; i < argc; i++) {
-                if (i > 1) expression += " ";
-                expression += argv[i];
-            }
-            
-            try {
-                double result = Calculator::calculate(expression);
-                std::string prefix = Calculator::getPrefixNotation(expression);
-                
-                std::cout << "Выражение: " << expression << "\n";
-                std::cout << "Польская запись: " << prefix << "\n";
-                std::cout << "Результат: " << std::fixed << std::setprecision(6) 
-                         << result << "\n";
-            } catch (const std::exception& e) {
-                std::cerr << "Ошибка: " << e.what() << "\n";
+        try {
+            port = std::stoi(argv[1]);
+            if (port < 1 || port > 65535) {
+                std::cerr << "Port must be between 1 and 65535" << std::endl;
                 return 1;
             }
+        } catch (...) {
+            std::cerr << "Invalid port number" << std::endl;
+            return 1;
         }
-    } else {
-        Calculator::runInteractive();
+    }
+    
+    std::cout << "Starting Calculator Server..." << std::endl;
+    
+    try {
+        SimpleHttpServer server;
+        server.start(port);
+        
+        // Держим программу запущенной
+        while (true) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+        
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return 1;
     }
     
     return 0;
