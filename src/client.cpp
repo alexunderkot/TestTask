@@ -14,7 +14,6 @@
     #include <arpa/inet.h>
     #include <unistd.h>
     #include <netdb.h>
-    #include <sys/time.h>
 #endif
 
 // ============================================================================
@@ -94,17 +93,7 @@ public:
         std::string response;
         int bytes_read;
         
-        // Установка таймаута на чтение
-#ifdef _WIN32
-        DWORD timeout = 5000;
-        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout, sizeof(timeout));
-#else
-        struct timeval tv;
-        tv.tv_sec = 5;
-        tv.tv_usec = 0;
-        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-#endif
-        
+        // Чтение ответа
         while ((bytes_read = recv(sock, buffer, BUFFER_SIZE - 1, 0)) > 0) {
             buffer[bytes_read] = '\0';
             response.append(buffer);
@@ -163,12 +152,15 @@ public:
                 }
             }
         }
-        else if (jsonBody.find("\"error\":") != std::string::npos) {
-            size_t start = jsonBody.find("\"error\":") + 9;
+        else if (jsonBody.find("\"err\":") != std::string::npos) {
+            size_t start = jsonBody.find("\"err\":") + 7;
             size_t end = jsonBody.find("\"", start);
             if (end != std::string::npos) {
                 return "Error: " + jsonBody.substr(start, end - start);
             }
+        }
+        else if (jsonBody == "{}") {
+            return "";  // Пустой ответ для присваивания или команды clean
         }
         
         return "Error: Cannot parse server response";
@@ -182,6 +174,12 @@ private:
                 result += "\\\"";
             } else if (c == '\\') {
                 result += "\\\\";
+            } else if (c == '\n') {
+                result += "\\n";
+            } else if (c == '\r') {
+                result += "\\r";
+            } else if (c == '\t') {
+                result += "\\t";
             } else {
                 result += c;
             }
@@ -243,15 +241,34 @@ private:
 // ============================================================================
 
 void showUsage(const char* programName) {
-    std::cout << "Calculator CLI Client\n";
+    std::cout << "Calculator CLI Client with Variables\n";
     std::cout << "Usage:\n";
-    std::cout << "  " << programName << " -c <command>    Send command to server (e.g., echo)\n";
-    std::cout << "  " << programName << " -e <expr>       Evaluate expression\n";
+    std::cout << "  " << programName << " -c <command>    Send command to server (e.g., echo, clean)\n";
+    std::cout << "  " << programName << " -e <expr>       Evaluate expression (use ; for multiple statements)\n";
     std::cout << "  " << programName << " -h              Show this help\n";
     std::cout << "\nExamples:\n";
     std::cout << "  " << programName << " -c echo\n";
-    std::cout << "  " << programName << " -e \"2 + 2\"\n";
-    std::cout << "  " << programName << " -e \"(3 + 4) * 5\"\n";
+    std::cout << "  " << programName << " -c clean\n";
+    std::cout << "  " << programName << " -e \"var = 2 + 3; var * 2\"\n";
+    std::cout << "  " << programName << " -e \"pi = 3.14; 2 * pi * 3\"\n";
+}
+
+std::string readMultilineExpression() {
+    std::cout << "Enter expression (end with empty line):\n";
+    std::string expression;
+    std::string line;
+    
+    while (std::getline(std::cin, line)) {
+        if (line.empty()) {
+            break;
+        }
+        if (!expression.empty()) {
+            expression += "; ";
+        }
+        expression += line;
+    }
+    
+    return expression;
 }
 
 int main(int argc, char* argv[]) {
@@ -273,26 +290,42 @@ int main(int argc, char* argv[]) {
         try {
             CalculatorClient client;
             std::string result = client.sendCommand(command);
-            std::cout << result << std::endl;
+            if (!result.empty()) {
+                std::cout << result << std::endl;
+            }
             return 0;
         } catch (const std::exception& e) {
             std::cerr << "Error: " << e.what() << std::endl;
             return 1;
         }
     }
-    else if (option == "-e" && argc >= 3) {
-        // Собираем все аргументы после -e в одно выражение
-        std::stringstream expressionStream;
-        for (int i = 2; i < argc; i++) {
-            if (i > 2) expressionStream << " ";
-            expressionStream << argv[i];
+        else if (option == "-e") {
+        std::string expression;
+        
+        if (argc >= 3) {
+            // Выражение передано как аргумент
+            std::stringstream expressionStream;
+            for (int i = 2; i < argc; i++) {
+                if (i > 2) expressionStream << " ";
+                expressionStream << argv[i];
+            }
+            expression = expressionStream.str();
+        } else {
+            // Читаем многострочное выражение
+            expression = readMultilineExpression();
         }
-        std::string expression = expressionStream.str();
+        
+        if (expression.empty()) {
+            std::cerr << "Error: No expression provided\n";
+            return 1;
+        }
         
         try {
             CalculatorClient client;
             std::string result = client.evaluateExpression(expression);
-            std::cout << result << std::endl;
+            if (!result.empty()) {
+                std::cout << result << std::endl;
+            }
             return 0;
         } catch (const std::exception& e) {
             std::cerr << "Error: " << e.what() << std::endl;

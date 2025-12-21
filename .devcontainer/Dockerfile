@@ -6,9 +6,9 @@ WORKDIR /workspace
 
 COPY src/ /workspace/src/
 
-RUN g++ -std=c++11 -pthread -O2 src/server.cpp -o /usr/local/bin/calc-server
+RUN g++ -std=c++17 -pthread -O2 src/server.cpp -o /usr/local/bin/calc-server
 
-RUN g++ -std=c++11 -O2 src/client.cpp -o /usr/local/bin/calc
+RUN g++ -std=c++17 -O2 src/client.cpp -o /usr/local/bin/calc
 
 EXPOSE 8080
 

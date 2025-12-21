@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <stack>
+#include <map>
 #include <sstream>
 #include <cctype>
 #include <stdexcept>
@@ -10,6 +11,8 @@
 #include <chrono>
 #include <cstring>
 #include <cstdlib>
+#include <mutex>
+#include <algorithm>
 
 // ============================================================================
 // Библиотеки для работы с сетью
@@ -23,6 +26,53 @@
 
 #define DEFAULT_PORT 8080
 #define BUFFER_SIZE 4096
+
+// ============================================================================
+// Глобальное состояние (переменные)
+// ============================================================================
+
+class VariableStore {
+private:
+    std::map<std::string, double> variables;
+    std::mutex mutex;
+    
+public:
+    static VariableStore& instance() {
+        static VariableStore instance;
+        return instance;
+    }
+    
+    void set(const std::string& name, double value) {
+        std::lock_guard<std::mutex> lock(mutex);
+        variables[name] = value;
+    }
+    
+    double get(const std::string& name) {
+        std::lock_guard<std::mutex> lock(mutex);
+        auto it = variables.find(name);
+        if (it == variables.end()) {
+            throw std::runtime_error("Unknown variable '" + name + "'");
+        }
+        return it->second;
+    }
+    
+    bool exists(const std::string& name) {
+        std::lock_guard<std::mutex> lock(mutex);
+        return variables.find(name) != variables.end();
+    }
+    
+    void clear() {
+        std::lock_guard<std::mutex> lock(mutex);
+        variables.clear();
+    }
+    
+    void list() {
+        std::lock_guard<std::mutex> lock(mutex);
+        for (const auto& pair : variables) {
+            std::cout << pair.first << " = " << pair.second << std::endl;
+        }
+    }
+};
 
 // ============================================================================
 // Простой JSON парсер
@@ -40,8 +90,12 @@ public:
         return "{\"res\":" + ss.str() + "}";
     }
     
+    static std::string createEmptyResponse() {
+        return "{}";
+    }
+    
     static std::string createError(const std::string& error) {
-        return "{\"error\":\"" + escapeJson(error) + "\"}";
+        return "{\"err\":\"" + escapeJson(error) + "\"}";
     }
     
     static bool parseRequest(const std::string& json, std::string& exp, std::string& cmd) {
@@ -90,7 +144,7 @@ private:
 };
 
 // ============================================================================
-// Калькулятор
+// Калькулятор с поддержкой переменных
 // ============================================================================
 
 class Calculator {
@@ -109,8 +163,65 @@ private:
     static double parseTerm(const std::string& expr, size_t& pos);
     static double parseFactor(const std::string& expr, size_t& pos);
     static double parseNumber(const std::string& expr, size_t& pos);
+    static std::string parseIdentifier(const std::string& expr, size_t& pos);
     
 public:
+    static std::string evaluateExpression(const std::string& expression) {
+        std::stringstream result;
+        std::stringstream exprStream(expression);
+        std::string line;
+        double lastResult = 0;
+        
+        while (std::getline(exprStream, line, ';')) {
+            line.erase(0, line.find_first_not_of(" \t\n\r\f\v"));
+            line.erase(line.find_last_not_of(" \t\n\r\f\v") + 1);
+            
+            if (line.empty()) continue;
+            
+            try {
+                // Проверяем, является ли это присваиванием
+                size_t assignPos = line.find('=');
+                if (assignPos != std::string::npos) {
+                    // Это присваивание
+                    std::string varName = line.substr(0, assignPos);
+                    std::string expr = line.substr(assignPos + 1);
+                    
+                    // Удаляем пробелы из имени переменной
+                    varName.erase(std::remove_if(varName.begin(), varName.end(), 
+                                               [](unsigned char c){ return std::isspace(c); }), 
+                                varName.end());
+                    
+                    if (varName.empty()) {
+                        throw std::runtime_error("Invalid variable name");
+                    }
+                    
+                    // Проверяем, что имя переменной состоит только из букв и подчеркиваний
+                    for (char c : varName) {
+                        if (!std::isalpha(c) && c != '_') {
+                            throw std::runtime_error("Invalid variable name: " + varName);
+                        }
+                    }
+                    
+                    // Вычисляем значение
+                    double value = calculate(expr);
+                    VariableStore::instance().set(varName, value);
+                    lastResult = value;
+                } else {
+                    // Это обычное выражение
+                    lastResult = calculate(line);
+                    if (result.tellp() > 0) {
+                        result << "; ";
+                    }
+                    result << lastResult;
+                }
+            } catch (const std::exception& e) {
+                throw std::runtime_error(e.what());
+            }
+        }
+        
+        return result.str();
+    }
+    
     static double calculate(const std::string& expression) {
         std::string expr = removeSpaces(expression);
         size_t pos = 0;
@@ -187,6 +298,12 @@ double Calculator::parseFactor(const std::string& expr, size_t& pos) {
         return -parseFactor(expr, pos);
     }
     
+    // Check for variable
+    if (std::isalpha(expr[pos]) || expr[pos] == '_') {
+        std::string varName = parseIdentifier(expr, pos);
+        return VariableStore::instance().get(varName);
+    }
+    
     return parseNumber(expr, pos);
 }
 
@@ -216,6 +333,20 @@ double Calculator::parseNumber(const std::string& expr, size_t& pos) {
     
     std::string numStr = expr.substr(start, pos - start);
     return std::stod(numStr);
+}
+
+std::string Calculator::parseIdentifier(const std::string& expr, size_t& pos) {
+    size_t start = pos;
+    
+    while (pos < expr.length() && (std::isalnum(expr[pos]) || expr[pos] == '_')) {
+        pos++;
+    }
+    
+    if (start == pos) {
+        throw std::runtime_error("Invalid identifier");
+    }
+    
+    return expr.substr(start, pos - start);
 }
 
 // ============================================================================
@@ -269,7 +400,7 @@ public:
             exit(EXIT_FAILURE);
         }
         
-        std::cout << "Calculator Server running on port " << port << std::endl;
+        std::cout << "Calculator Server with Variables running on port " << port << std::endl;
         std::cout << "Use Ctrl+C to stop" << std::endl;
         
         running = true;
@@ -306,10 +437,6 @@ private:
     
     void handleClient(int socket, struct sockaddr_in address) {
         char buffer[BUFFER_SIZE] = {0};
-        std::string client_ip = inet_ntoa(address.sin_addr);
-        int client_port = ntohs(address.sin_port);
-        
-        std::cout << "New connection from " << client_ip << ":" << client_port << std::endl;
         
         // Чтение запроса
         ssize_t bytes_read = read(socket, buffer, BUFFER_SIZE - 1);
@@ -324,7 +451,6 @@ private:
         }
         
         close(socket);
-        std::cout << "Connection closed: " << client_ip << ":" << client_port << std::endl;
     }
     
     std::string processHttpRequest(const std::string& request) {
@@ -346,6 +472,9 @@ private:
         if (!cmd.empty()) {
             if (cmd == "echo") {
                 return createHttpResponse(JsonParser::createResponse("echo"));
+            } else if (cmd == "clean") {
+                VariableStore::instance().clear();
+                return createHttpResponse(JsonParser::createEmptyResponse());
             } else {
                 return createHttpResponse(JsonParser::createError("Unknown command"));
             }
@@ -354,8 +483,24 @@ private:
         // Вычисляем выражение
         if (!exp.empty()) {
             try {
-                double result = Calculator::calculate(exp);
-                return createHttpResponse(JsonParser::createResponse(result));
+                std::string result = Calculator::evaluateExpression(exp);
+                if (result.empty()) {
+                    return createHttpResponse(JsonParser::createEmptyResponse());
+                } else {
+                    try {
+                        // Если результат содержит только число
+                        if (result.find(';') == std::string::npos) {
+                            double numResult = std::stod(result);
+                            return createHttpResponse(JsonParser::createResponse(numResult));
+                        } else {
+                            // Если несколько результатов
+                            return createHttpResponse(JsonParser::createResponse(result));
+                        }
+                    } catch (...) {
+                        // Если не число, возвращаем как строку
+                        return createHttpResponse(JsonParser::createResponse(result));
+                    }
+                }
             } catch (const std::exception& e) {
                 return createHttpResponse(JsonParser::createError(e.what()));
             }
@@ -364,7 +509,7 @@ private:
         return createHttpResponse(JsonParser::createError("No expression provided"));
     }
     
-    std::string createHttpResponse(const std::string& json_body) {
+        std::string createHttpResponse(const std::string& json_body) {
         std::string response = 
             "HTTP/1.1 200 OK\r\n"
             "Content-Type: application/json\r\n"
@@ -382,7 +527,7 @@ private:
 // ============================================================================
 
 void printServerUsage(const char* progname) {
-    std::cout << "Calculator HTTP Server\n";
+    std::cout << "Calculator HTTP Server with Variables\n";
     std::cout << "Usage: " << progname << " [port]\n";
     std::cout << "Default port: " << DEFAULT_PORT << std::endl;
 }
@@ -409,7 +554,7 @@ int main(int argc, char* argv[]) {
         }
     }
     
-    std::cout << "Starting Calculator Server..." << std::endl;
+    std::cout << "Starting Calculator Server with Variables..." << std::endl;
     
     try {
         HttpServer server(port);
