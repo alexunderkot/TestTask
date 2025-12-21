@@ -2,46 +2,35 @@
 
 # Сборка и запуск:
 1. Соберите образ:
-docker build -t calculator-vars -f .devcontainer/Dockerfile .
+docker build -t calculator-sessions -f .devcontainer/Dockerfile .
 
 2. Запустите сервер в фоне:
-docker run -d -p 8080:8080 --name calc-server calculator-vars
+docker run -d -p 8080:8080 --name calc-server calculator-sessions
 
-3. Тестирование:
-# Простое присваивание и использование
-docker exec calc-server calc -e "var = 2 + 3; var * 2"
-Результат: 10
+# Тестирование Level 11:
+1. Установка переменной для пользователя student
+docker exec calc-server calc -u student -e "pi = 3.14"
 
-# Ошибка: неизвестная переменная
-docker exec calc-server calc -e "foo = 2 + 3; bar * 2"
-Результат: Error: Unknown variable 'bar'
-
-# Многострочный ввод
-docker exec -it calc-server sh -c "calc -e"
-# Затем вводите построчно:
-var = 2 + 3
-var * 2
-[пустая строка]
-
-# 3. Тестируйте Level 10
-docker exec calc-server calc -e "pi = 3.14"
-Результат: (пустой вывод)
-
+2. Попытка использовать без указания пользователя (должна быть ошибка)
 docker exec calc-server calc -e "2 * pi * 3"
-Результат: 18.84
+Ожидаемый результат: Error: Unknown variable 'pi'
 
-docker exec calc-server calc -c clean
-Результат: (пустой вывод)
+3. Использование с указанием пользователя
+docker exec calc-server calc -u student -e "2 * pi * 3"
+Ожидаемый результат: 18.84
 
-docker exec calc-server calc -e "2 * pi * 3"
-Результат: Error: Unknown variable 'pi'
+4. Очистка сессии пользователя student
+docker exec calc-server calc -u student -c clean
 
-# 4. Тестируйте через curl
-curl -X POST http://localhost:8080/ -H "Content-Type: application/json" -d "{\"exp\":\"var = 2 + 3; var * 2\"}"
-Результат: {"res":10}
+5. Проверка очистки
+docker exec calc-server calc -u student -e "2 * pi * 3"
+Ожидаемый результат: Error: Unknown variable 'pi'
 
-curl -X POST http://localhost:8080/ -H "Content-Type: application/json" -d "{\"cmd\":\"clean\"}"
-Результат: {}
+6. Тестирование разных пользователей
+docker exec calc-server calc -u alice -e "x = 5"
+docker exec calc-server calc -u bob -e "x = 10"
+docker exec calc-server calc -u alice -e "x * 2"
+Ожидаемый результат: 10
 
-curl -X POST http://localhost:8080/ -H "Content-Type: application/json" -d "{\"exp\":\"pi = 3.14\"}"
-Результат: {}
+docker exec calc-server calc -u bob -e "x * 2"
+Ожидаемый результат: 20

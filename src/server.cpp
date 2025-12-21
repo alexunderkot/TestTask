@@ -13,6 +13,7 @@
 #include <cstdlib>
 #include <mutex>
 #include <algorithm>
+#include <unordered_map>
 
 // ============================================================================
 // Библиотеки для работы с сетью
@@ -28,51 +29,80 @@
 #define BUFFER_SIZE 4096
 
 // ============================================================================
-// Глобальное состояние (переменные)
+// Глобальное состояние (сессии пользователей)
 // ============================================================================
 
-class VariableStore {
+class SessionStore {
 private:
-    std::map<std::string, double> variables;
+    // user_id -> variables
+    std::unordered_map<std::string, std::map<std::string, double>> sessions;
     std::mutex mutex;
     
+    static const std::string DEFAULT_USER;
+    
 public:
-    static VariableStore& instance() {
-        static VariableStore instance;
+    static SessionStore& instance() {
+        static SessionStore instance;
         return instance;
     }
     
-    void set(const std::string& name, double value) {
+    void set(const std::string& user, const std::string& name, double value) {
         std::lock_guard<std::mutex> lock(mutex);
-        variables[name] = value;
+        sessions[user][name] = value;
     }
     
-    double get(const std::string& name) {
+    double get(const std::string& user, const std::string& name) {
         std::lock_guard<std::mutex> lock(mutex);
-        auto it = variables.find(name);
-        if (it == variables.end()) {
+        auto userIt = sessions.find(user);
+        if (userIt == sessions.end()) {
             throw std::runtime_error("Unknown variable '" + name + "'");
         }
-        return it->second;
+        
+        auto varIt = userIt->second.find(name);
+        if (varIt == userIt->second.end()) {
+            throw std::runtime_error("Unknown variable '" + name + "'");
+        }
+        return varIt->second;
     }
     
-    bool exists(const std::string& name) {
+    bool exists(const std::string& user, const std::string& name) {
         std::lock_guard<std::mutex> lock(mutex);
-        return variables.find(name) != variables.end();
+        auto userIt = sessions.find(user);
+        if (userIt == sessions.end()) {
+            return false;
+        }
+        return userIt->second.find(name) != userIt->second.end();
     }
     
-    void clear() {
+    void clear(const std::string& user) {
         std::lock_guard<std::mutex> lock(mutex);
-        variables.clear();
+        sessions[user].clear();
     }
     
-    void list() {
+    void clearAll() {
         std::lock_guard<std::mutex> lock(mutex);
-        for (const auto& pair : variables) {
-            std::cout << pair.first << " = " << pair.second << std::endl;
+        sessions.clear();
+    }
+    
+    void list(const std::string& user) {
+        std::lock_guard<std::mutex> lock(mutex);
+        auto userIt = sessions.find(user);
+        if (userIt != sessions.end()) {
+            for (const auto& pair : userIt->second) {
+                std::cout << pair.first << " = " << pair.second << std::endl;
+            }
         }
     }
+    
+    std::string getEffectiveUser(const std::string& requestedUser) {
+        if (requestedUser.empty()) {
+            return DEFAULT_USER;
+        }
+        return requestedUser;
+    }
 };
+
+const std::string SessionStore::DEFAULT_USER = "default";
 
 // ============================================================================
 // Простой JSON парсер
@@ -98,7 +128,20 @@ public:
         return "{\"err\":\"" + escapeJson(error) + "\"}";
     }
     
-    static bool parseRequest(const std::string& json, std::string& exp, std::string& cmd) {
+    static bool parseRequest(const std::string& json, 
+                            std::string& exp, 
+                            std::string& cmd, 
+                            std::string& user) {
+        // Ищем user
+        size_t userPos = json.find("\"user\":\"");
+        if (userPos != std::string::npos) {
+            size_t start = userPos + 8;
+            size_t end = json.find("\"", start);
+            if (end != std::string::npos) {
+                user = json.substr(start, end - start);
+            }
+        }
+        
         // Ищем exp
         size_t expPos = json.find("\"exp\":\"");
         if (expPos != std::string::npos) {
@@ -144,7 +187,7 @@ private:
 };
 
 // ============================================================================
-// Калькулятор с поддержкой переменных
+// Калькулятор с поддержкой сессий
 // ============================================================================
 
 class Calculator {
@@ -159,18 +202,19 @@ private:
         return result;
     }
     
-    static double parseExpression(const std::string& expr, size_t& pos);
-    static double parseTerm(const std::string& expr, size_t& pos);
-    static double parseFactor(const std::string& expr, size_t& pos);
+    static double parseExpression(const std::string& expr, size_t& pos, const std::string& user);
+    static double parseTerm(const std::string& expr, size_t& pos, const std::string& user);
+    static double parseFactor(const std::string& expr, size_t& pos, const std::string& user);
     static double parseNumber(const std::string& expr, size_t& pos);
     static std::string parseIdentifier(const std::string& expr, size_t& pos);
     
 public:
-    static std::string evaluateExpression(const std::string& expression) {
+    static std::string evaluateExpression(const std::string& expression, const std::string& user) {
         std::stringstream result;
         std::stringstream exprStream(expression);
         std::string line;
         double lastResult = 0;
+        std::string effectiveUser = SessionStore::instance().getEffectiveUser(user);
         
         while (std::getline(exprStream, line, ';')) {
             line.erase(0, line.find_first_not_of(" \t\n\r\f\v"));
@@ -203,12 +247,12 @@ public:
                     }
                     
                     // Вычисляем значение
-                    double value = calculate(expr);
-                    VariableStore::instance().set(varName, value);
+                    double value = calculate(expr, effectiveUser);
+                    SessionStore::instance().set(effectiveUser, varName, value);
                     lastResult = value;
                 } else {
                     // Это обычное выражение
-                    lastResult = calculate(line);
+                    lastResult = calculate(line, effectiveUser);
                     if (result.tellp() > 0) {
                         result << "; ";
                     }
@@ -222,10 +266,10 @@ public:
         return result.str();
     }
     
-    static double calculate(const std::string& expression) {
+    static double calculate(const std::string& expression, const std::string& user) {
         std::string expr = removeSpaces(expression);
         size_t pos = 0;
-        double result = parseExpression(expr, pos);
+        double result = parseExpression(expr, pos, user);
         
         if (pos < expr.length()) {
             throw std::runtime_error("Unexpected characters: " + expr.substr(pos));
@@ -235,14 +279,14 @@ public:
     }
 };
 
-double Calculator::parseExpression(const std::string& expr, size_t& pos) {
-    double result = parseTerm(expr, pos);
+double Calculator::parseExpression(const std::string& expr, size_t& pos, const std::string& user) {
+    double result = parseTerm(expr, pos, user);
     
     while (pos < expr.length() && (expr[pos] == '+' || expr[pos] == '-')) {
         char op = expr[pos];
         pos++;
         
-        double right = parseTerm(expr, pos);
+        double right = parseTerm(expr, pos, user);
         
         if (op == '+') {
             result += right;
@@ -254,14 +298,14 @@ double Calculator::parseExpression(const std::string& expr, size_t& pos) {
     return result;
 }
 
-double Calculator::parseTerm(const std::string& expr, size_t& pos) {
-    double result = parseFactor(expr, pos);
+double Calculator::parseTerm(const std::string& expr, size_t& pos, const std::string& user) {
+    double result = parseFactor(expr, pos, user);
     
     while (pos < expr.length() && (expr[pos] == '*' || expr[pos] == '/')) {
         char op = expr[pos];
         pos++;
         
-        double right = parseFactor(expr, pos);
+        double right = parseFactor(expr, pos, user);
         
         if (op == '*') {
             result *= right;
@@ -276,14 +320,14 @@ double Calculator::parseTerm(const std::string& expr, size_t& pos) {
     return result;
 }
 
-double Calculator::parseFactor(const std::string& expr, size_t& pos) {
+double Calculator::parseFactor(const std::string& expr, size_t& pos, const std::string& user) {
     if (pos >= expr.length()) {
         throw std::runtime_error("Unexpected end of expression");
     }
     
     if (expr[pos] == '(') {
         pos++; // skip '('
-        double result = parseExpression(expr, pos);
+        double result = parseExpression(expr, pos, user);
         
         if (pos >= expr.length() || expr[pos] != ')') {
             throw std::runtime_error("Missing ')'");
@@ -295,13 +339,13 @@ double Calculator::parseFactor(const std::string& expr, size_t& pos) {
     // Check for unary minus
     if (expr[pos] == '-') {
         pos++;
-        return -parseFactor(expr, pos);
+        return -parseFactor(expr, pos, user);
     }
     
     // Check for variable
     if (std::isalpha(expr[pos]) || expr[pos] == '_') {
         std::string varName = parseIdentifier(expr, pos);
-        return VariableStore::instance().get(varName);
+        return SessionStore::instance().get(user, varName);
     }
     
     return parseNumber(expr, pos);
@@ -400,7 +444,7 @@ public:
             exit(EXIT_FAILURE);
         }
         
-        std::cout << "Calculator Server with Variables running on port " << port << std::endl;
+        std::cout << "Calculator Server with Sessions running on port " << port << std::endl;
         std::cout << "Use Ctrl+C to stop" << std::endl;
         
         running = true;
@@ -463,8 +507,8 @@ private:
         std::string body = request.substr(body_start + 4);
         
         // Парсим JSON
-        std::string exp, cmd;
-        if (!JsonParser::parseRequest(body, exp, cmd)) {
+        std::string exp, cmd, user;
+        if (!JsonParser::parseRequest(body, exp, cmd, user)) {
             return createHttpResponse(JsonParser::createError("Invalid JSON"));
         }
         
@@ -473,7 +517,8 @@ private:
             if (cmd == "echo") {
                 return createHttpResponse(JsonParser::createResponse("echo"));
             } else if (cmd == "clean") {
-                VariableStore::instance().clear();
+                std::string effectiveUser = SessionStore::instance().getEffectiveUser(user);
+                SessionStore::instance().clear(effectiveUser);
                 return createHttpResponse(JsonParser::createEmptyResponse());
             } else {
                 return createHttpResponse(JsonParser::createError("Unknown command"));
@@ -483,7 +528,7 @@ private:
         // Вычисляем выражение
         if (!exp.empty()) {
             try {
-                std::string result = Calculator::evaluateExpression(exp);
+                std::string result = Calculator::evaluateExpression(exp, user);
                 if (result.empty()) {
                     return createHttpResponse(JsonParser::createEmptyResponse());
                 } else {
@@ -509,7 +554,7 @@ private:
         return createHttpResponse(JsonParser::createError("No expression provided"));
     }
     
-        std::string createHttpResponse(const std::string& json_body) {
+    std::string createHttpResponse(const std::string& json_body) {
         std::string response = 
             "HTTP/1.1 200 OK\r\n"
             "Content-Type: application/json\r\n"
@@ -527,7 +572,7 @@ private:
 // ============================================================================
 
 void printServerUsage(const char* progname) {
-    std::cout << "Calculator HTTP Server with Variables\n";
+    std::cout << "Calculator HTTP Server with Sessions\n";
     std::cout << "Usage: " << progname << " [port]\n";
     std::cout << "Default port: " << DEFAULT_PORT << std::endl;
 }
@@ -554,7 +599,7 @@ int main(int argc, char* argv[]) {
         }
     }
     
-    std::cout << "Starting Calculator Server with Variables..." << std::endl;
+    std::cout << "Starting Calculator Server with Sessions..." << std::endl;
     
     try {
         HttpServer server(port);

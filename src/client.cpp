@@ -115,11 +115,17 @@ public:
 
 class JsonHandler {
 public:
-    static std::string createCommandJson(const std::string& command) {
+    static std::string createCommandJson(const std::string& command, const std::string& user = "") {
+        if (!user.empty()) {
+            return "{\"cmd\":\"" + escapeJson(command) + "\", \"user\":\"" + escapeJson(user) + "\"}";
+        }
         return "{\"cmd\":\"" + escapeJson(command) + "\"}";
     }
     
-    static std::string createExpressionJson(const std::string& expression) {
+    static std::string createExpressionJson(const std::string& expression, const std::string& user = "") {
+        if (!user.empty()) {
+            return "{\"exp\":\"" + escapeJson(expression) + "\", \"user\":\"" + escapeJson(user) + "\"}";
+        }
         return "{\"exp\":\"" + escapeJson(expression) + "\"}";
     }
     
@@ -201,8 +207,8 @@ public:
     CalculatorClient(const std::string& h = SERVER_HOST, int p = SERVER_PORT) 
         : host(h), port(p) {}
     
-    std::string sendCommand(const std::string& command) {
-        std::string jsonBody = JsonHandler::createCommandJson(command);
+    std::string sendCommand(const std::string& command, const std::string& user = "") {
+        std::string jsonBody = JsonHandler::createCommandJson(command, user);
         std::string httpRequest = createHttpRequest(jsonBody);
         
         HttpClient httpClient;
@@ -211,8 +217,8 @@ public:
         return JsonHandler::parseResponse(response);
     }
     
-    std::string evaluateExpression(const std::string& expression) {
-        std::string jsonBody = JsonHandler::createExpressionJson(expression);
+    std::string evaluateExpression(const std::string& expression, const std::string& user = "") {
+        std::string jsonBody = JsonHandler::createExpressionJson(expression, user);
         std::string httpRequest = createHttpRequest(jsonBody);
         
         HttpClient httpClient;
@@ -241,31 +247,47 @@ private:
 // ============================================================================
 
 void showUsage(const char* programName) {
-    std::cout << "Calculator CLI Client with Variables\n";
+    std::cout << "Calculator CLI Client with Sessions\n";
     std::cout << "Usage:\n";
-    std::cout << "  " << programName << " -c <command>    Send command to server (e.g., echo, clean)\n";
-    std::cout << "  " << programName << " -e <expr>       Evaluate expression (use ; for multiple statements)\n";
-    std::cout << "  " << programName << " -h              Show this help\n";
+    std::cout << "  " << programName << " -c <command>           Send command to server (e.g., echo, clean)\n";
+    std::cout << "  " << programName << " -e <expr>              Evaluate expression\n";
+    std::cout << "  " << programName << " -u <user>              Specify user for the operation\n";
+    std::cout << "  " << programName << " -h                     Show this help\n";
     std::cout << "\nExamples:\n";
-    std::cout << "  " << programName << " -c echo\n";
-    std::cout << "  " << programName << " -c clean\n";
-    std::cout << "  " << programName << " -e \"var = 2 + 3; var * 2\"\n";
-    std::cout << "  " << programName << " -e \"pi = 3.14; 2 * pi * 3\"\n";
+    std::cout << "  " << programName << " -u student -e \"pi = 3.14\"\n";
+    std::cout << "  " << programName << " -u student -e \"2 * pi * 3\"\n";
+    std::cout << "  " << programName << " -u student -c clean\n";
+    std::cout << "  " << programName << " -e \"2 + 2\"             (uses default user)\n";
 }
 
 std::string readMultilineExpression() {
-    std::cout << "Enter expression (end with empty line):\n";
     std::string expression;
     std::string line;
     
-    while (std::getline(std::cin, line)) {
-        if (line.empty()) {
-            break;
+    // Проверяем, есть ли данные в stdin
+    if (!std::cin.eof()) {
+        // Читаем все строки
+        while (std::getline(std::cin, line)) {
+            if (line.empty()) {
+                break;
+            }
+            if (!expression.empty()) {
+                expression += "; ";
+            }
+            expression += line;
         }
-        if (!expression.empty()) {
-            expression += "; ";
+    } else {
+        // Нет данных в stdin, выводим инструкцию
+        std::cout << "Enter expression (end with empty line):\n";
+        while (std::getline(std::cin, line)) {
+            if (line.empty()) {
+                break;
+            }
+            if (!expression.empty()) {
+                expression += "; ";
+            }
+            expression += line;
         }
-        expression += line;
     }
     
     return expression;
@@ -277,64 +299,72 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     
-    std::string option = argv[1];
+    std::string user;
+    std::string command;
+    std::string expression;
+    std::string option;
     
-    if (option == "-h" || option == "--help") {
-        showUsage(argv[0]);
-        return 0;
-    }
-    
-    if (option == "-c" && argc >= 3) {
-        std::string command = argv[2];
+    // Парсим аргументы
+    for (int i = 1; i < argc; i++) {
+        std::string arg = argv[i];
         
-        try {
-            CalculatorClient client;
-            std::string result = client.sendCommand(command);
-            if (!result.empty()) {
-                std::cout << result << std::endl;
-            }
+        if (arg == "-h" || arg == "--help") {
+            showUsage(argv[0]);
             return 0;
-        } catch (const std::exception& e) {
-            std::cerr << "Error: " << e.what() << std::endl;
+        }
+        else if (arg == "-u" && i + 1 < argc) {
+            user = argv[++i];
+        }
+        else if (arg == "-c" && i + 1 < argc) {
+            command = argv[++i];
+        }
+        else if (arg == "-e") {
+            option = "-e";
+            // Собираем все аргументы после -e в одно выражение
+            std::stringstream expressionStream;
+            for (int j = i + 1; j < argc; j++) {
+                if (j > i + 1) expressionStream << " ";
+                expressionStream << argv[j];
+            }
+            expression = expressionStream.str();
+            break;
+        }
+        else {
+            std::cerr << "Error: Unknown argument: " << arg << std::endl;
+            showUsage(argv[0]);
             return 1;
         }
     }
-        else if (option == "-e") {
-        std::string expression;
-        
-        if (argc >= 3) {
-            // Выражение передано как аргумент
-            std::stringstream expressionStream;
-            for (int i = 2; i < argc; i++) {
-                if (i > 2) expressionStream << " ";
-                expressionStream << argv[i];
-            }
-            expression = expressionStream.str();
-        } else {
-            // Читаем многострочное выражение
-            expression = readMultilineExpression();
-        }
-        
+    
+    // Если -e без аргументов, читаем из stdin
+    if (option == "-e" && expression.empty()) {
+        expression = readMultilineExpression();
         if (expression.empty()) {
             std::cerr << "Error: No expression provided\n";
             return 1;
         }
+    }
+    
+    try {
+        CalculatorClient client;
+        std::string result;
         
-        try {
-            CalculatorClient client;
-            std::string result = client.evaluateExpression(expression);
-            if (!result.empty()) {
-                std::cout << result << std::endl;
-            }
-            return 0;
-        } catch (const std::exception& e) {
-            std::cerr << "Error: " << e.what() << std::endl;
+        if (!command.empty()) {
+            result = client.sendCommand(command, user);
+        } else if (!expression.empty()) {
+            result = client.evaluateExpression(expression, user);
+        } else {
+            std::cerr << "Error: No command or expression specified\n";
+            showUsage(argv[0]);
             return 1;
         }
-    }
-    else {
-        std::cerr << "Invalid arguments!\n";
-        showUsage(argv[0]);
+        
+        if (!result.empty()) {
+            std::cout << result << std::endl;
+        }
+        return 0;
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
         return 1;
     }
 }
