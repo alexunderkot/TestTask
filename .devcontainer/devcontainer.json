@@ -1,21 +1,16 @@
 {
-    "name": "C++",
+    "name": "C++ Echo Server",
     "build": {
         "dockerfile": "Dockerfile"
-    },
-    "forwardPorts": [8080],
-    "portsAttributes": {
-        "8080": {
-            "label": "Hello C++ World",
-            "onAutoForward": "notify"
-        }
     },
     "customizations": {
         "vscode": {
             "extensions": [
-                "ms-vscode.cpptools"
+                "ms-vscode.cpptools",
+                "ms-vscode.cmake-tools"
             ]
         }
     },
-    "postCreateCommand": "g++ --version; echo '✅ C++ ready!'"
+    "forwardPorts": [8080],
+    "postCreateCommand": "mkdir -p build && cd build && cmake .. && make"
 }
