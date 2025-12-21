@@ -1,0 +1,3 @@
+D:/Git/TestTask/build/CMakeFiles/TestTask.dir
+D:/Git/TestTask/build/CMakeFiles/ALL_BUILD.dir
+D:/Git/TestTask/build/CMakeFiles/ZERO_CHECK.dir
