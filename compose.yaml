@@ -1,5 +1,23 @@
 version: '3.8'
 
 services:
-  app:
-    build: .
+  polish-calculator:
+    build:
+      context: .
+      dockerfile: .devcontainer/Dockerfile
+    container_name: calculator-app
+    stdin_open: true
+    tty: true
+    volumes:
+      - ./TestTask.cpp:/workspace/TestTask.cpp:ro
+      - ./data:/workspace/data
+    working_dir: /workspace
+    environment:
+      - MODE=interactive
+    command: >
+      sh -c "
+        echo 'Компиляция программы...' &&
+        g++ -std=c++17 -Wall -Wextra -O2 -o calculator TestTask.cpp &&
+        echo 'Запуск калькулятора...' &&
+        ./calculator
+      "

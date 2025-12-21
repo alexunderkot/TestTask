@@ -1,18 +1,21 @@
-FROM gcc:latest
+FROM ubuntu:22.04
 
-# Обновляем и устанавливаем необходимые пакеты
-RUN apt-get update && apt-get install -y cmake && rm -rf /var/lib/apt/lists/*
+# Установка необходимых пакетов
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    g++ \
+    build-essential \
+    git \
+    cmake \
+    && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
+# Создание рабочей директории
+WORKDIR /workspace
 
-# Копируем исходные файлы из корня проекта
-COPY ../TestTask.cpp .
-COPY ../CMakeLists.txt .
-COPY ../build.sh .
+# Копирование исходного кода из родительской директории
+COPY TestTask.cpp /workspace/TestTask.cpp
 
-# Даем права на выполнение скрипта сборки
-RUN chmod +x build.sh
+# Компиляция программы
+RUN g++ -std=c++17 -Wall -Wextra -O2 TestTask.cpp -o calculator
 
-EXPOSE 8080
-
-CMD ["./build.sh"]
+# Точка входа для запуска калькулятора
+CMD ["./calculator"]
