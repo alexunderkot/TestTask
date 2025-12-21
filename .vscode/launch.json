@@ -1,0 +1,17 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Launch with CMake",
+            "type": "cppvsdbg",  // ИЗМЕНИТЕ с "cppdbg" на "cppvsdbg" для MSVC!
+            "request": "launch",
+            "program": "${workspaceFolder}/build/Debug/TestTask.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "preLaunchTask": "Build with CMake"
+        }
+    ]
+}
