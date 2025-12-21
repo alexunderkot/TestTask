@@ -1,25 +1,13 @@
-# Собрать образ
-docker build -t calculator-server -f .devcontainer/Dockerfile .
+## Как использовать
 
-# Запустить сервер
-docker run -p 8080:8080 calc-server
+# Сборка и запуск:
+1. Соберите образ:
+docker build -t calculator-system -f .devcontainer/Dockerfile .
 
-# Далее есть два варианта взаимодействия:
-1) Перейти по ссылке (http://localhost:8080/ - стандартная) в браузере, пользоваться        калькулятором
+2. Запустите сервер в фоне:
+docker run -d -p 8080:8080 --name calc-server calculator-system
 
-2) Через консоль
-
-    # Вычислить 2+2
-curl -X POST http://localhost:8080/ -H "Content-Type: application/json" -d "{\"exp\":\"2 + 2\"}"
-
-# С приоритетами
-curl -X POST http://localhost:8080/ -H "Content-Type: application/json" -d "{\"exp\":\"2 + 3 * 4\"}"
-
-   # Со скобками
-curl -X POST http://localhost:8080/ -H "Content-Type: application/json" -d "{\"exp\":\"(3 + 4) * 5\"}"
-
-# Вещественные числа
-curl -X POST http://localhost:8080/ -H "Content-Type: application/json" -d "{\"exp\":\"3.5 + 2.5\"}"
-
-# Сложные выражения
-curl -X POST http://localhost:8080/ -H "Content-Type: application/json" -d "{\"exp\":\"3 + 4 * 2 / (1 - 5)\"}"
+3. Используйте клиент из контейнера:
+docker exec calc-server calc -c echo
+docker exec calc-server calc -e "2 + 2"
+docker exec calc-server calc -e "(3 + 4) * 5"

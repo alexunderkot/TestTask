@@ -1,38 +1,41 @@
 version: '3.8'
 
 services:
-  calculator-server:
+  server:
     build:
       context: .
       dockerfile: .devcontainer/Dockerfile
-    container_name: http-calculator-server
-    image: calculator-server:latest
+    container_name: calc-server
     ports:
       - "8080:8080"
-    stdin_open: true
-    tty: true
-    volumes:
-      - ./TestTask.cpp:/workspace/TestTask.cpp
-    working_dir: /workspace
-    command: ./calculator-server 8080
-    
-  test-client:
-    image: alpine:latest
-    container_name: calculator-test-client
+    command: calc-server 8080
+    networks:
+      - calc-network
+
+  client-test:
+    build:
+      context: .
+      dockerfile: .devcontainer/Dockerfile
+    container_name: calc-client-test
     depends_on:
-      - calculator-server
+      - server
+    networks:
+      - calc-network
     entrypoint: >
       sh -c "
-        echo 'Waiting for server to start...'
-        sleep 5
-        echo 'Testing echo command...'
-        echo '{\"cmd\": \"echo\"}' | nc calculator-server 8080
-        echo ''
-        echo 'Testing calculation...'
-        echo '{\"exp\": \"2 + 2\"}' | nc calculator-server 8080
-        echo ''
-        echo 'Testing complex expression...'
-        echo '{\"exp\": \"(3 + 4) * 5\"}' | nc calculator-server 8080
+        echo 'Waiting for server to start...' &&
+        sleep 3 &&
+        echo 'Testing echo command...' &&
+        calc -c echo &&
+        echo &&
+        echo 'Testing expressions...' &&
+        calc -e '2 + 2' &&
+        calc -e '3 * 4' &&
+        calc -e '(3 + 4) * 5' &&
+        calc -e '10 / (2 + 3)' &&
+        echo
       "
-    profiles:
-      - test
+
+networks:
+  calc-network:
+    driver: bridge
