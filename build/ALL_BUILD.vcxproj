@@ -174,9 +174,13 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </ProjectReference>
-    <ProjectReference Include="D:\Git\TestTask\build\TestTask.vcxproj">
-      <Project>{A2119CAB-AB12-3840-BB93-FA078B698DE8}</Project>
-      <Name>TestTask</Name>
+    <ProjectReference Include="D:\Git\TestTask\build\calculator-client.vcxproj">
+      <Project>{4C6ED83F-735C-3FCA-A8BB-6DA978D038CC}</Project>
+      <Name>calculator-client</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\Git\TestTask\build\calculator-server.vcxproj">
+      <Project>{C1001108-12EA-31E5-9061-5D77311D6462}</Project>
+      <Name>calculator-server</Name>
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

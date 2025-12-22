@@ -34,5 +34,3 @@ docker exec calc-server calc -u alice -e "x * 2"
 
 docker exec calc-server calc -u bob -e "x * 2"
 Ожидаемый результат: 20
-
-check

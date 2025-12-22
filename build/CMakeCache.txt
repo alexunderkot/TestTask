@@ -115,7 +115,7 @@ CMAKE_PROJECT_DESCRIPTION:STATIC=
 CMAKE_PROJECT_HOMEPAGE_URL:STATIC=
 
 //Value Computed by CMake
-CMAKE_PROJECT_NAME:STATIC=TestTask
+CMAKE_PROJECT_NAME:STATIC=calculator-server
 
 //Value Computed by CMake
 CMAKE_PROJECT_SPDX_LICENSE:STATIC=
@@ -199,6 +199,15 @@ TestTask_IS_TOP_LEVEL:STATIC=ON
 
 //Value Computed by CMake
 TestTask_SOURCE_DIR:STATIC=D:/Git/TestTask
+
+//Value Computed by CMake
+calculator-server_BINARY_DIR:STATIC=D:/Git/TestTask/build
+
+//Value Computed by CMake
+calculator-server_IS_TOP_LEVEL:STATIC=ON
+
+//Value Computed by CMake
+calculator-server_SOURCE_DIR:STATIC=D:/Git/TestTask
 
 
 ########################
