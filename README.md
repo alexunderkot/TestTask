@@ -1,13 +1,15 @@
 ## Как использовать
 
 # Сборка и запуск:
+## Падаван исправил основные проблемы программы с точки зрения читаемости кода
+
 1. Соберите образ:
 docker build -t calculator-sessions -f .devcontainer/Dockerfile .
 
 2. Запустите сервер в фоне:
 docker run -d -p 8080:8080 --name calc-server calculator-sessions
 
-# Тестирование Level 11:
+# Тестирование (также, как и Level 11):
 1. Установка переменной для пользователя student
 docker exec calc-server calc -u student -e "pi = 3.14"
 
