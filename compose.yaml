@@ -12,30 +12,6 @@ services:
     networks:
       - calc-network
 
-  client-test:
-    build:
-      context: .
-      dockerfile: .devcontainer/Dockerfile
-    container_name: calc-client-test
-    depends_on:
-      - server
-    networks:
-      - calc-network
-    entrypoint: >
-      sh -c "
-        echo 'Waiting for server to start...' &&
-        sleep 3 &&
-        echo 'Testing echo command...' &&
-        calc -c echo &&
-        echo &&
-        echo 'Testing expressions...' &&
-        calc -e '2 + 2' &&
-        calc -e '3 * 4' &&
-        calc -e '(3 + 4) * 5' &&
-        calc -e '10 / (2 + 3)' &&
-        echo
-      "
-
 networks:
   calc-network:
     driver: bridge

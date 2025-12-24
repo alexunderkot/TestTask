@@ -53,13 +53,3 @@ std::string SessionStore::getEffectiveUser(const std::string& requestedUser) {
     }
     return requestedUser;
 }
-
-void SessionStore::list(const std::string& user) {
-    std::lock_guard<std::mutex> lock(mutex);
-    auto userIt = sessions.find(user);
-    if (userIt != sessions.end()) {
-        for (const auto& pair : userIt->second) {
-            std::cout << pair.first << " = " << pair.second << std::endl;
-        }
-    }
-}

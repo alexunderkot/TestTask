@@ -27,8 +27,6 @@ public:
     void clear(const std::string& user) override;
     void clearAll() override;
     std::string getEffectiveUser(const std::string& requestedUser) override;
-    
-    void list(const std::string& user);  // For debugging
 };
 
 #endif
